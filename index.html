@@ -11,6 +11,7 @@
       --secondary: #4cc9f0;
       --success: #2ec4b6;
       --error: #e71d36;
+      --warning: #ff9f1c;
       --text: #2b2d42;
       --light-text: #8d99ae;
       --background: #f8f9fa;
@@ -185,6 +186,11 @@
       color: var(--secondary) !important;
     }
     
+    .status-warning {
+      background-color: rgba(255, 159, 28, 0.1) !important;
+      color: var(--warning) !important;
+    }
+    
     .fade-in {
       animation: fadeIn 0.5s ease forwards;
     }
@@ -216,6 +222,105 @@
     
     @keyframes spin {
       to { transform: rotate(360deg); }
+    }
+    
+    .modal {
+      display: none;
+      position: fixed;
+      z-index: 1000;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0,0,0,0.5);
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .modal-content {
+      background-color: white;
+      padding: 24px;
+      border-radius: 12px;
+      max-width: 500px;
+      width: 90%;
+      box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+    }
+    
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    
+    .modal-title {
+      margin: 0;
+      font-size: 1.5rem;
+      color: var(--text);
+    }
+    
+    .close-modal {
+      background: none;
+      border: none;
+      font-size: 1.5rem;
+      cursor: pointer;
+      color: var(--light-text);
+      width: auto;
+      padding: 0;
+    }
+    
+    .modal-body {
+      margin-bottom: 16px;
+    }
+    
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+    
+    .modal-actions button {
+      width: auto;
+      padding: 10px 16px;
+    }
+    
+    .btn-secondary {
+      background-color: var(--light-text);
+    }
+    
+    .setup-guide {
+      background-color: rgba(76, 201, 240, 0.1);
+      border-left: 4px solid var(--secondary);
+      padding: 16px;
+      margin-top: 16px;
+      border-radius: 4px;
+    }
+    
+    .setup-guide h3 {
+      margin-top: 0;
+      color: var(--secondary);
+    }
+    
+    .setup-guide ol {
+      margin-left: 20px;
+      margin-bottom: 0;
+    }
+    
+    .setup-guide li {
+      margin-bottom: 8px;
+    }
+    
+    .setup-guide li:last-child {
+      margin-bottom: 0;
+    }
+    
+    .setup-guide a {
+      color: var(--primary);
+      text-decoration: none;
+    }
+    
+    .setup-guide a:hover {
+      text-decoration: underline;
     }
   </style>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -259,6 +364,35 @@
     </form>
 
     <div id="status"></div>
+    
+    <div class="setup-guide" id="api-guide" style="display: none;">
+      <h3>Google API Setup Required</h3>
+      <p>The Google Drive API needs to be enabled for this application to work properly.</p>
+      <ol>
+        <li>Visit the <a href="https://console.developers.google.com/apis/api/drive.googleapis.com/overview?project=423668944032" target="_blank">Google Cloud Console</a></li>
+        <li>Click the "Enable" button to activate the Drive API</li>
+        <li>Wait a few minutes for the changes to propagate</li>
+        <li>Refresh this page and try again</li>
+      </ol>
+    </div>
+  </div>
+  
+  <!-- API Error Modal -->
+  <div id="api-error-modal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title">Google API Setup Required</h3>
+        <button class="close-modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p>The Google Drive API needs to be enabled in your Google Cloud project.</p>
+        <p>Would you like to open the Google Cloud Console to enable it?</p>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="modal-cancel">Cancel</button>
+        <button id="modal-confirm">Open Google Cloud Console</button>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -275,6 +409,18 @@
     const SHEET_ID = "1TwUrxtMxyapuwcF9YQnSguRDli7PmCQObwhQjdoGWaA";
     const FOLDER_ID = "1LRM9kD-261k62JiBGFqKrxSnrgduClCh";
     const SESSION_KEY = "dataFormAuthSession";
+    const APIS_TO_CHECK = [
+      {
+        name: "Google Drive API",
+        url: "https://console.developers.google.com/apis/api/drive.googleapis.com/overview?project=423668944032",
+        checkString: "drive.googleapis.com"
+      },
+      {
+        name: "Google Sheets API",
+        url: "https://console.developers.google.com/apis/api/sheets.googleapis.com/overview?project=423668944032",
+        checkString: "sheets.googleapis.com"
+      }
+    ];
 
     /***************************************
      * DOM element references
@@ -293,6 +439,11 @@
     const photoPreviewEl = document.getElementById("photo-preview");
     const retakeBtn = document.getElementById("retake-photo");
     const submitBtn = document.getElementById("submit-form");
+    const apiGuideEl = document.getElementById("api-guide");
+    const apiErrorModal = document.getElementById("api-error-modal");
+    const modalConfirmBtn = document.getElementById("modal-confirm");
+    const modalCancelBtn = document.getElementById("modal-cancel");
+    const closeModalBtn = document.querySelector(".close-modal");
 
     /***************************************
      * Global Variables
@@ -301,6 +452,11 @@
     let tokenClient = null;
     let stream = null;
     let photoBlob = null;
+    let photoDataUrl = null;
+    let apisEnabled = {
+      "drive.googleapis.com": null,
+      "sheets.googleapis.com": null
+    };
 
     /***************************************
      * Helper Functions
@@ -369,6 +525,64 @@
       button.classList.remove("loading");
       button.textContent = text;
     }
+    
+    function showModal(modal) {
+      modal.style.display = "flex";
+    }
+    
+    function hideModal(modal) {
+      modal.style.display = "none";
+    }
+    
+    function handleApiError(error) {
+      console.error("API Error:", error);
+      
+      if (error && error.message) {
+        // Check for specific API not enabled errors
+        APIS_TO_CHECK.forEach(api => {
+          if (error.message.includes(api.checkString) && 
+              error.message.includes("disabled")) {
+            
+            apisEnabled[api.checkString] = false;
+            apiGuideEl.style.display = "block";
+            
+            // Show the modal with relevant API info
+            modalConfirmBtn.onclick = function() {
+              window.open(api.url, "_blank");
+              hideModal(apiErrorModal);
+            };
+            
+            showModal(apiErrorModal);
+            
+            setStatus(`${api.name} needs to be enabled. See setup guide below.`, "warning");
+          }
+        });
+      }
+    }
+    
+    // Function to check if an API is enabled
+    async function checkApiEnabled(apiName) {
+      try {
+        if (apiName === "drive.googleapis.com") {
+          await gapi.client.drive.about.get({ fields: "user" });
+          apisEnabled[apiName] = true;
+          return true;
+        } else if (apiName === "sheets.googleapis.com") {
+          await gapi.client.sheets.spreadsheets.get({ spreadsheetId: SHEET_ID });
+          apisEnabled[apiName] = true;
+          return true;
+        }
+      } catch (error) {
+        if (error.result && error.result.error && 
+            (error.result.error.code === 403 || error.result.error.status === "PERMISSION_DENIED")) {
+          apisEnabled[apiName] = false;
+          return false;
+        }
+        // Other errors (like network issues) shouldn't indicate API disabled
+        console.error(`Error checking ${apiName}:`, error);
+        return null;
+      }
+    }
 
     /***************************************
      * Initialize gapi client
@@ -411,6 +625,9 @@
             gapi.client.setToken({access_token: accessToken});
             updateSignInStatus(true);
             setStatus("Successfully signed in!", "success");
+            
+            // Check if APIs are enabled
+            checkApisEnabled();
           }
         });
         
@@ -420,11 +637,46 @@
           gapi.client.setToken({access_token: accessToken});
           updateSignInStatus(true);
           setStatus("Welcome back! Your session was restored.", "info");
+          
+          // Check if APIs are enabled
+          checkApisEnabled();
         }
       } catch (error) {
         setStatus("Initialization error: " + error.message, "error");
       }
+      
+      // Set up modal event listeners
+      modalCancelBtn.onclick = function() {
+        hideModal(apiErrorModal);
+      };
+      
+      closeModalBtn.onclick = function() {
+        hideModal(apiErrorModal);
+      };
     };
+    
+    // Check if required APIs are enabled
+    async function checkApisEnabled() {
+      for (const api of Object.keys(apisEnabled)) {
+        const isEnabled = await checkApiEnabled(api);
+        if (isEnabled === false) {
+          // API is disabled
+          const apiInfo = APIS_TO_CHECK.find(a => a.checkString === api);
+          apiGuideEl.style.display = "block";
+          setStatus(`${apiInfo.name} needs to be enabled. See setup guide below.`, "warning");
+          
+          // Show the modal with relevant API info
+          modalConfirmBtn.onclick = function() {
+            window.open(apiInfo.url, "_blank");
+            hideModal(apiErrorModal);
+          };
+          
+          showModal(apiErrorModal);
+          return false;
+        }
+      }
+      return true;
+    }
 
     /***************************************
      * Authentication Button Handler
@@ -449,6 +701,7 @@
           clearSession();
           updateSignInStatus(false);
           setStatus("Successfully signed out.", "info");
+          apiGuideEl.style.display = "none";
         } catch (error) {
           setStatus("Error signing out: " + error.message, "error");
         } finally {
@@ -489,8 +742,9 @@
       const ctx = canvas.getContext("2d");
       ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
       
-      // Display photo preview
-      photoPreviewEl.src = canvas.toDataURL("image/jpeg", 0.8);
+      // Save both blob and data URL for flexibility
+      photoDataUrl = canvas.toDataURL("image/jpeg", 0.8);
+      photoPreviewEl.src = photoDataUrl;
       photoPreviewEl.style.display = "block";
       
       // Convert to Blob for upload
@@ -520,12 +774,13 @@
       photoPreviewEl.style.display = "none";
       photoPreviewEl.src = "";
       photoBlob = null;
+      photoDataUrl = null;
       retakeBtn.style.display = "none";
       openCameraBtn.click();
     };
 
     /***************************************
-     * Form Submission Handler with better error handling
+     * Form Submission Handler with API error handling and fallback
      ***************************************/
     formEl.onsubmit = async function (e) {
       e.preventDefault();
@@ -534,7 +789,7 @@
         return;
       }
       
-      if (!photoBlob) {
+      if (!photoBlob && !photoDataUrl) {
         setStatus("Please take a photo before submitting.", "error");
         return;
       }
@@ -549,25 +804,43 @@
           return;
         }
         
-        setStatus("Uploading photo to Google Drive...", "info");
+        let fileData;
         
-        // Upload photo to Drive
-        const fileData = await uploadToDrive();
-        setStatus("Updating Google Sheet...", "info");
+        // Try to upload to Drive with fallback option
+        try {
+          setStatus("Uploading photo to Google Drive...", "info");
+          fileData = await uploadToDrive();
+        } catch (driveError) {
+          handleApiError(driveError);
+          
+          // Fallback approach: update sheet with base64 data or direct reference
+          setStatus("Drive upload failed. Using alternative method...", "warning");
+          fileData = {
+            fileId: null,
+            fileName: `photo_${nameEl.value.replace(/\s+/g, '_')}_${Date.now()}.jpg`,
+            altData: photoDataUrl // Include the data URL as an alternative
+          };
+        }
         
         // Update spreadsheet
-        await updateSheet(fileData);
-        
-        // Success message
-        setStatus("Your data has been successfully submitted!", "success");
-        
-        // Reset form
-        formEl.reset();
-        photoPreviewEl.style.display = "none";
-        photoPreviewEl.src = "";
-        photoBlob = null;
-        retakeBtn.style.display = "none";
-        
+        try {
+          setStatus("Updating Google Sheet...", "info");
+          await updateSheet(fileData);
+          
+          // Success message
+          setStatus("Your data has been successfully submitted!", "success");
+          
+          // Reset form
+          formEl.reset();
+          photoPreviewEl.style.display = "none";
+          photoPreviewEl.src = "";
+          photoBlob = null;
+          photoDataUrl = null;
+          retakeBtn.style.display = "none";
+        } catch (sheetError) {
+          handleApiError(sheetError);
+          setStatus("Failed to update spreadsheet. Please try again later.", "error");
+        }
       } catch (error) {
         console.error(error);
         
