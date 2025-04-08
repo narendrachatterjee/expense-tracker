@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Data Collection Form</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      background: #f7f7f7;
+      margin: 0;
+      padding: 20px;
+    }
+    #form-container {
+      max-width: 500px;
+      margin: 0 auto;
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+    }
+    h2 {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    label {
+      font-weight: bold;
+      margin-bottom: 5px;
+      display: block;
+    }
+    input, textarea, button {
+      width: 100%;
+      padding: 10px;
+      margin: 8px 0 16px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      box-sizing: border-box;
+    }
+    button {
+      cursor: pointer;
+      background-color: #007bff;
+      border: none;
+      color: white;
+      font-size: 16px;
+    }
+    button:hover {
+      background-color: #0056b3;
+    }
+    #auth-button {
+      margin-bottom: 20px;
+    }
+    #camera-container {
+      position: relative;
+      margin-bottom: 16px;
+    }
+    #camera-container video {
+      width: 100%;
+      height: auto;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    #camera-controls {
+      display: flex;
+      gap: 10px;
+      margin-top: 8px;
+    }
+    #camera-controls button {
+      flex: 1;
+      padding: 10px;
+      background-color: #28a745;
+    }
+    #camera-controls button.cancel {
+      background-color: #6c757d;
+    }
+    #photo-preview {
+      display: none;
+      width: 100%;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      margin-bottom: 8px;
+    }
+    #status {
+      margin-top: 16px;
+      padding: 10px;
+      background-color: #e9ecef;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div id="form-container">
+    <h2>Data Collection Form</h2>
+    <button id="auth-button">Sign In with Google</button>
+    
+    <form id="dataForm" style="display: none;">
+      <label for="name">Full Name</label>
+      <input type="text" id="name" name="name" placeholder="Your full name" required />
+
+      <label for="email">Email Address</label>
+      <input type="email" id="email" name="email" placeholder="Your email" required />
+
+      <label for="notes">Additional Notes</label>
+      <textarea id="notes" name="notes" rows="3" placeholder="Your notes"></textarea>
+      
+      <button type="button" id="open-camera">Take Photo</button>
+
+      <div id="camera-container" style="display: none;">
+        <video id="video" autoplay></video>
+        <div id="camera-controls">
+          <button type="button" id="capture">Capture</button>
+          <button type="button" id="cancel-camera" class="cancel">Cancel</button>
+        </div>
+      </div>
+
+      <img id="photo-preview" alt="Photo Preview" />
+      <button type="button" id="retake-photo" style="display: none;">Retake Photo</button>
+      
+      <button type="submit" id="submit-form">Submit</button>
+    </form>
+
+    <div id="status"></div>
+  </div>
+
+  <!-- Load Google API client -->
+  <script src="https://apis.google.com/js/api.js"></script>
+  <script>
+    // Replace these placeholders with your actual credentials
+    const API_KEY = "AIzaSyB0PCnlFKH57YGaE0am8h5dtK6pnZXOURU";
+    const CLIENT_ID = "423668944032-mrhstv88ge0jds6i1l2hcrl4bifmfaun.apps.googleusercontent.com";
+    const DISCOVERY_DOCS = [
+      "https://www.googleapis.com/discovery/v1/apis/drive/v3/rest",
+      "https://sheets.googleapis.com/$discovery/rest?version=v4"
+    ];
+    const SCOPES = "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/spreadsheets";
+    const SHEET_ID = "1TwUrxtMxyapuwcF9YQnSguRDli7PmCQObwhQjdoGWaA";
+    const FOLDER_ID = "1-Ad4BV-nxmDyESjbCmrZq3hmenL05ZEv";
+
+    // DOM element references
+    const authButton = document.getElementById("auth-button");
+    const formEl = document.getElementById("dataForm");
+    const statusEl = document.getElementById("status");
+    const nameEl = document.getElementById("name");
+    const emailEl = document.getElementById("email");
+    const notesEl = document.getElementById("notes");
+    const openCameraBtn = document.getElementById("open-camera");
+    const cameraContainer = document.getElementById("camera-container");
+    const videoEl = document.getElementById("video");
+    const captureBtn = document.getElementById("capture");
+    const cancelCameraBtn = document.getElementById("cancel-camera");
+    const photoPreviewEl = document.getElementById("photo-preview");
+    const retakeBtn = document.getElementById("retake-photo");
+    const submitFormBtn = document.getElementById("submit-form");
+
+    let gapiLoaded = false;
+    let isSignedIn = false;
+    let stream = null;
+    let photoBlob = null;
+
+    // Initialize the Google API client
+    function initGapi() {
+      gapi.load('client:auth2', function() {
+        gapi.client.init({
+          apiKey: API_KEY,
+          clientId: CLIENT_ID,
+          discoveryDocs: DISCOVERY_DOCS,
+          scope: SCOPES
+        }).then(function () {
+          gapiLoaded = true;
+          // Listen for sign-in state changes
+          gapi.auth2.getAuthInstance().isSignedIn.listen(updateSignInStatus);
+          updateSignInStatus(gapi.auth2.getAuthInstance().isSignedIn.get());
+        }, function(error) {
+          setStatus("Error initializing GAPI client: " + JSON.stringify(error));
+        });
+      });
+    }
+
+    function updateSignInStatus(signedIn) {
+      isSignedIn = signedIn;
+      if (isSignedIn) {
+        authButton.textContent = "Sign Out from Google";
+        formEl.style.display = "block";
+      } else {
+        authButton.textContent = "Sign In with Google";
+        formEl.style.display = "none";
+      }
+    }
+
+    authButton.onclick = function() {
+      if (!gapiLoaded) {
+        setStatus("Google API is still loading, please wait.");
+        return;
+      }
+      if (isSignedIn) {
+        gapi.auth2.getAuthInstance().signOut();
+      } else {
+        gapi.auth2.getAuthInstance().signIn();
+      }
+    };
+
+    function setStatus(msg) {
+      statusEl.textContent = msg;
+    }
+
+    // Camera functions
+    openCameraBtn.onclick = async function() {
+      cameraContainer.style.display = "block";
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        videoEl.srcObject = stream;
+      } catch (err) {
+        setStatus("Camera access failed. Check permissions. " + err.message);
+      }
+    };
+
+    captureBtn.onclick = function() {
+      const canvas = document.createElement("canvas");
+      canvas.width = videoEl.videoWidth;
+      canvas.height = videoEl.videoHeight;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
+      // Set photo preview
+      photoPreviewEl.src = canvas.toDataURL("image/jpeg");
+      photoPreviewEl.style.display = "block";
+      // Store blob for uploading
+      canvas.toBlob(function(blob) {
+        photoBlob = blob;
+      }, "image/jpeg");
+      stopCamera();
+      retakeBtn.style.display = "block";
+    };
+
+    cancelCameraBtn.onclick = function() {
+      stopCamera();
+    };
+
+    function stopCamera() {
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+        stream = null;
+      }
+      cameraContainer.style.display = "none";
+    }
+
+    retakeBtn.onclick = function() {
+      photoPreviewEl.style.display = "none";
+      photoPreviewEl.src = "";
+      photoBlob = null;
+      retakeBtn.style.display = "none";
+      openCameraBtn.click();
+    };
+
+    // Form submission
+    formEl.onsubmit = async function(e) {
+      e.preventDefault();
+      if (!isSignedIn) {
+        setStatus("Please sign in with Google first.");
+        return;
+      }
+      if (!photoBlob) {
+        setStatus("Please take a photo before submitting.");
+        return;
+      }
+      setStatus("Uploading photo to Google Drive...");
+      try {
+        const fileData = await uploadToDrive();
+        setStatus("Updating Google Sheet...");
+        await updateSheet(fileData);
+        setStatus("Submission successful!");
+        formEl.reset();
+        photoPreviewEl.style.display = "none";
+        photoPreviewEl.src = "";
+        photoBlob = null;
+        retakeBtn.style.display = "none";
+      } catch (error) {
+        setStatus("Error: " + error.message);
+      }
+    };
+
+    async function uploadToDrive() {
+      const fileName = "photo_" + nameEl.value + "_" + Date.now() + ".jpg";
+      const accessToken = gapi.auth2.getAuthInstance().currentUser.get().getAuthResponse().access_token;
+
+      const metadata = {
+        name: fileName,
+        mimeType: "image/jpeg",
+        parents: [FOLDER_ID]
+      };
+
+      const formData = new FormData();
+      formData.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+      formData.append('file', photoBlob);
+
+      let response = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", {
+        method: "POST",
+        headers: new Headers({ 'Authorization': 'Bearer ' + accessToken }),
+        body: formData
+      });
+      let result = await response.json();
+      return { fileId: result.id, fileName: fileName };
+    }
+
+    async function updateSheet(fileData) {
+      const values = [[
+        nameEl.value,
+        emailEl.value,
+        notesEl.value,
+        fileData.fileName,
+        "https://drive.google.com/file/d/" + fileData.fileId + "/view"
+      ]];
+      const body = {
+        values: values
+      };
+
+      await gapi.client.sheets.spreadsheets.values.append({
+        spreadsheetId: SHEET_ID,
+        range: "Sheet1!A:E",
+        valueInputOption: "USER_ENTERED",
+        resource: body
+      });
+    }
+
+    window.onload = initGapi;
+  </script>
+</body>
+</html>
