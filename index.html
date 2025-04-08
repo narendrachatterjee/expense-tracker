@@ -86,14 +86,18 @@
       margin-bottom: 20px;
     }
   </style>
+  <!-- Load the new Google Identity Services library -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <!-- Load the Google API client library (for Drive and Sheets APIs) -->
+  <script src="https://apis.google.com/js/api.js"></script>
 </head>
 <body>
   <div id="form-container">
     <h2>Data Collection Form</h2>
-    <!-- Sign in/Sign out button (visible always) -->
+    <!-- Sign In/Out button -->
     <button id="auth-button">Sign In with Google</button>
     
-    <!-- The data form; hidden until the user signs in -->
+    <!-- Data form; initially hidden until the user signs in -->
     <form id="dataForm" style="display: none;">
       <label for="name">Full Name</label>
       <input type="text" id="name" name="name" placeholder="Your full name" required />
@@ -107,7 +111,7 @@
       <!-- Button to open the camera -->
       <button type="button" id="open-camera">Take Photo</button>
 
-      <!-- Camera container with video stream and controls -->
+      <!-- Camera container -->
       <div id="camera-container" style="display: none;">
         <video id="video" autoplay></video>
         <div id="camera-controls">
@@ -120,21 +124,17 @@
       <img id="photo-preview" alt="Photo Preview" />
       <button type="button" id="retake-photo" style="display: none;">Retake Photo</button>
       
-      <!-- Form submit button -->
+      <!-- Submit button -->
       <button type="submit" id="submit-form">Submit</button>
     </form>
 
     <div id="status"></div>
   </div>
 
-  <!-- Load the Google API client library -->
-  <script src="https://apis.google.com/js/api.js"></script>
   <script>
-    /**
-     * Replace these placeholder values with your own credentials.
-     * You must register your authorized JavaScript origins (e.g., http://localhost:8000)
-     * for your CLIENT_ID in the Google Cloud Console.
-     */
+    /***************************************
+     * Configuration – Replace placeholders:
+     ***************************************/
      const API_KEY = "AIzaSyB0PCnlFKH57YGaE0am8h5dtK6pnZXOURU";
     const CLIENT_ID = "423668944032-mrhstv88ge0jds6i1l2hcrl4bifmfaun.apps.googleusercontent.com";
     const DISCOVERY_DOCS = [
@@ -144,7 +144,9 @@
     const SCOPES = "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/spreadsheets";
     const SHEET_ID = "1TwUrxtMxyapuwcF9YQnSguRDli7PmCQObwhQjdoGWaA";
     const FOLDER_ID = "1-Ad4BV-nxmDyESjbCmrZq3hmenL05ZEv";
-    // DOM element references
+    /***************************************
+     * DOM element references
+     ***************************************/
     const authButton = document.getElementById("auth-button");
     const formEl = document.getElementById("dataForm");
     const statusEl = document.getElementById("status");
@@ -159,35 +161,23 @@
     const photoPreviewEl = document.getElementById("photo-preview");
     const retakeBtn = document.getElementById("retake-photo");
 
-    let gapiLoaded = false;
-    let isSignedIn = false;
+    /***************************************
+     * Global Variables
+     ***************************************/
+    let accessToken = null;
+    let tokenClient = null;
     let stream = null;
     let photoBlob = null;
 
-    // Initialize the Google API Client with OAuth
-    function initGapi() {
-      gapi.load('client:auth2', function() {
-        gapi.client.init({
-          apiKey: API_KEY,
-          clientId: CLIENT_ID,
-          discoveryDocs: DISCOVERY_DOCS,
-          scope: SCOPES,
-          cookie_policy: 'single_host_origin' // Default cookie policy
-        }).then(function () {
-          gapiLoaded = true;
-          // Listen for sign-in state changes
-          gapi.auth2.getAuthInstance().isSignedIn.listen(updateSignInStatus);
-          updateSignInStatus(gapi.auth2.getAuthInstance().isSignedIn.get());
-        }, function(error) {
-          setStatus("Error initializing GAPI client: " + JSON.stringify(error));
-        });
-      });
+    /***************************************
+     * Helper Functions
+     ***************************************/
+    function setStatus(msg) {
+      statusEl.textContent = msg;
     }
 
-    // Update the UI based on the sign-in state.
     function updateSignInStatus(signedIn) {
-      isSignedIn = signedIn;
-      if (isSignedIn) {
+      if (signedIn) {
         authButton.textContent = "Sign Out from Google";
         formEl.style.display = "block";
       } else {
@@ -196,71 +186,97 @@
       }
     }
 
-    // Toggle sign in/out on click of the auth button.
-    authButton.onclick = function() {
-      if (!gapiLoaded) {
-        setStatus("Google API is still loading, please wait.");
-        return;
-      }
-      if (isSignedIn) {
-        gapi.auth2.getAuthInstance().signOut();
+    /***************************************
+     * Initialize gapi client for Drive and Sheets APIs
+     ***************************************/
+    function initGapiClient() {
+      gapi.load("client", async () => {
+        await gapi.client.setApiKey(API_KEY);
+        await gapi.client.load("drive", "v3");
+        await gapi.client.load("sheets", "v4");
+      });
+    }
+
+    /***************************************
+     * Window onload – Initialize both gapi and the new token client
+     ***************************************/
+    window.onload = () => {
+      initGapiClient();
+      // Initialize token client using Google Identity Services
+      tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: CLIENT_ID,
+        scope: SCOPES,
+        callback: (response) => {
+          if (response.error) {
+            setStatus("Error obtaining token: " + response.error);
+            return;
+          }
+          accessToken = response.access_token;
+          updateSignInStatus(true);
+        }
+      });
+    };
+
+    /***************************************
+     * Authentication Button Handler
+     ***************************************/
+    authButton.onclick = () => {
+      if (!accessToken) {
+        // Request an access token; force consent prompt
+        tokenClient.requestAccessToken({ prompt: 'consent' });
       } else {
-        gapi.auth2.getAuthInstance().signIn();
+        // Sign out: revoke the token
+        google.accounts.oauth2.revoke(accessToken, () => {
+          accessToken = null;
+          updateSignInStatus(false);
+          setStatus("Signed out.");
+        });
       }
     };
 
-    // Helper function to set status messages.
-    function setStatus(msg) {
-      statusEl.textContent = msg;
-    }
-
-    // Open the camera and display video stream.
-    openCameraBtn.onclick = async function() {
+    /***************************************
+     * Camera Functions
+     ***************************************/
+    openCameraBtn.onclick = async function () {
       cameraContainer.style.display = "block";
       try {
         stream = await navigator.mediaDevices.getUserMedia({ video: true });
         videoEl.srcObject = stream;
       } catch (err) {
-        setStatus("Camera access failed. Check permissions. " + err.message);
+        setStatus("Camera access failed: " + err.message);
       }
     };
 
-    // Capture photo from the video stream.
-    captureBtn.onclick = function() {
+    captureBtn.onclick = function () {
       const canvas = document.createElement("canvas");
       canvas.width = videoEl.videoWidth;
       canvas.height = videoEl.videoHeight;
       const ctx = canvas.getContext("2d");
       ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
-      
-      // Show photo preview.
+      // Display photo preview
       photoPreviewEl.src = canvas.toDataURL("image/jpeg");
       photoPreviewEl.style.display = "block";
-      
-      // Convert image to Blob for upload.
-      canvas.toBlob(function(blob) {
+      // Convert to Blob for upload
+      canvas.toBlob(function (blob) {
         photoBlob = blob;
       }, "image/jpeg");
-      
       stopCamera();
       retakeBtn.style.display = "block";
     };
 
-    // Stop the camera stream.
-    cancelCameraBtn.onclick = function() {
+    cancelCameraBtn.onclick = function () {
       stopCamera();
     };
 
     function stopCamera() {
       if (stream) {
-        stream.getTracks().forEach(track => track.stop());
+        stream.getTracks().forEach((track) => track.stop());
         stream = null;
       }
       cameraContainer.style.display = "none";
     }
 
-    // Allow user to retake photo.
-    retakeBtn.onclick = function() {
+    retakeBtn.onclick = function () {
       photoPreviewEl.style.display = "none";
       photoPreviewEl.src = "";
       photoBlob = null;
@@ -268,11 +284,12 @@
       openCameraBtn.click();
     };
 
-    // Handle form submission.
-    document.getElementById("dataForm").onsubmit = async function(e) {
+    /***************************************
+     * Form Submission Handler
+     ***************************************/
+    formEl.onsubmit = async function (e) {
       e.preventDefault();
-      
-      if (!isSignedIn) {
+      if (!accessToken) {
         setStatus("Please sign in with Google first.");
         return;
       }
@@ -281,7 +298,6 @@
         return;
       }
       setStatus("Uploading photo to Google Drive...");
-      
       try {
         const fileData = await uploadToDrive();
         setStatus("Updating Google Sheet...");
@@ -297,34 +313,37 @@
       }
     };
 
-    // Upload the photo to Google Drive.
+    /***************************************
+     * API Interaction Functions
+     ***************************************/
+
+    // Upload photo to Google Drive via multipart POST call.
     async function uploadToDrive() {
       const fileName = "photo_" + nameEl.value + "_" + Date.now() + ".jpg";
-      // Retrieve access token from the signed-in user.
-      const accessToken = gapi.auth2.getAuthInstance()
-                            .currentUser.get()
-                            .getAuthResponse().access_token;
-
       const metadata = {
         name: fileName,
         mimeType: "image/jpeg",
         parents: [FOLDER_ID]
       };
-
       const formData = new FormData();
-      formData.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-      formData.append('file', photoBlob);
-
-      let response = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", {
-        method: "POST",
-        headers: new Headers({ 'Authorization': 'Bearer ' + accessToken }),
-        body: formData
-      });
-      let result = await response.json();
+      formData.append(
+        "metadata",
+        new Blob([JSON.stringify(metadata)], { type: "application/json" })
+      );
+      formData.append("file", photoBlob);
+      const response = await fetch(
+        "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",
+        {
+          method: "POST",
+          headers: new Headers({ Authorization: "Bearer " + accessToken }),
+          body: formData
+        }
+      );
+      const result = await response.json();
       return { fileId: result.id, fileName: fileName };
     }
 
-    // Update the Google Sheet with the form data and the file link.
+    // Update Google Sheet by appending a new row with the form data and the photo link.
     async function updateSheet(fileData) {
       const values = [[
         nameEl.value,
@@ -333,10 +352,7 @@
         fileData.fileName,
         "https://drive.google.com/file/d/" + fileData.fileId + "/view"
       ]];
-      const body = {
-        values: values
-      };
-
+      const body = { values: values };
       await gapi.client.sheets.spreadsheets.values.append({
         spreadsheetId: SHEET_ID,
         range: "Sheet1!A:E",
@@ -344,9 +360,6 @@
         resource: body
       });
     }
-
-    // Begin initialization when the window loads.
-    window.onload = initGapi;
   </script>
 </body>
 </html>
