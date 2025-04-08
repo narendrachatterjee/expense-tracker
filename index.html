@@ -46,9 +46,6 @@
     button:hover {
       background-color: #0056b3;
     }
-    #auth-button {
-      margin-bottom: 20px;
-    }
     #camera-container {
       position: relative;
       margin-bottom: 16px;
@@ -85,13 +82,18 @@
       background-color: #e9ecef;
       border-radius: 4px;
     }
+    #auth-button {
+      margin-bottom: 20px;
+    }
   </style>
 </head>
 <body>
   <div id="form-container">
     <h2>Data Collection Form</h2>
+    <!-- Sign in/Sign out button (visible always) -->
     <button id="auth-button">Sign In with Google</button>
     
+    <!-- The data form; hidden until the user signs in -->
     <form id="dataForm" style="display: none;">
       <label for="name">Full Name</label>
       <input type="text" id="name" name="name" placeholder="Your full name" required />
@@ -102,8 +104,10 @@
       <label for="notes">Additional Notes</label>
       <textarea id="notes" name="notes" rows="3" placeholder="Your notes"></textarea>
       
+      <!-- Button to open the camera -->
       <button type="button" id="open-camera">Take Photo</button>
 
+      <!-- Camera container with video stream and controls -->
       <div id="camera-container" style="display: none;">
         <video id="video" autoplay></video>
         <div id="camera-controls">
@@ -112,20 +116,26 @@
         </div>
       </div>
 
+      <!-- Photo preview and retake option -->
       <img id="photo-preview" alt="Photo Preview" />
       <button type="button" id="retake-photo" style="display: none;">Retake Photo</button>
       
+      <!-- Form submit button -->
       <button type="submit" id="submit-form">Submit</button>
     </form>
 
     <div id="status"></div>
   </div>
 
-  <!-- Load Google API client -->
+  <!-- Load the Google API client library -->
   <script src="https://apis.google.com/js/api.js"></script>
   <script>
-    // Replace these placeholders with your actual credentials
-    const API_KEY = "AIzaSyB0PCnlFKH57YGaE0am8h5dtK6pnZXOURU";
+    /**
+     * Replace these placeholder values with your own credentials.
+     * You must register your authorized JavaScript origins (e.g., http://localhost:8000)
+     * for your CLIENT_ID in the Google Cloud Console.
+     */
+     const API_KEY = "AIzaSyB0PCnlFKH57YGaE0am8h5dtK6pnZXOURU";
     const CLIENT_ID = "423668944032-mrhstv88ge0jds6i1l2hcrl4bifmfaun.apps.googleusercontent.com";
     const DISCOVERY_DOCS = [
       "https://www.googleapis.com/discovery/v1/apis/drive/v3/rest",
@@ -134,7 +144,6 @@
     const SCOPES = "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/spreadsheets";
     const SHEET_ID = "1TwUrxtMxyapuwcF9YQnSguRDli7PmCQObwhQjdoGWaA";
     const FOLDER_ID = "1-Ad4BV-nxmDyESjbCmrZq3hmenL05ZEv";
-
     // DOM element references
     const authButton = document.getElementById("auth-button");
     const formEl = document.getElementById("dataForm");
@@ -149,21 +158,21 @@
     const cancelCameraBtn = document.getElementById("cancel-camera");
     const photoPreviewEl = document.getElementById("photo-preview");
     const retakeBtn = document.getElementById("retake-photo");
-    const submitFormBtn = document.getElementById("submit-form");
 
     let gapiLoaded = false;
     let isSignedIn = false;
     let stream = null;
     let photoBlob = null;
 
-    // Initialize the Google API client
+    // Initialize the Google API Client with OAuth
     function initGapi() {
       gapi.load('client:auth2', function() {
         gapi.client.init({
           apiKey: API_KEY,
           clientId: CLIENT_ID,
           discoveryDocs: DISCOVERY_DOCS,
-          scope: SCOPES
+          scope: SCOPES,
+          cookie_policy: 'single_host_origin' // Default cookie policy
         }).then(function () {
           gapiLoaded = true;
           // Listen for sign-in state changes
@@ -175,6 +184,7 @@
       });
     }
 
+    // Update the UI based on the sign-in state.
     function updateSignInStatus(signedIn) {
       isSignedIn = signedIn;
       if (isSignedIn) {
@@ -186,6 +196,7 @@
       }
     }
 
+    // Toggle sign in/out on click of the auth button.
     authButton.onclick = function() {
       if (!gapiLoaded) {
         setStatus("Google API is still loading, please wait.");
@@ -198,11 +209,12 @@
       }
     };
 
+    // Helper function to set status messages.
     function setStatus(msg) {
       statusEl.textContent = msg;
     }
 
-    // Camera functions
+    // Open the camera and display video stream.
     openCameraBtn.onclick = async function() {
       cameraContainer.style.display = "block";
       try {
@@ -213,23 +225,28 @@
       }
     };
 
+    // Capture photo from the video stream.
     captureBtn.onclick = function() {
       const canvas = document.createElement("canvas");
       canvas.width = videoEl.videoWidth;
       canvas.height = videoEl.videoHeight;
       const ctx = canvas.getContext("2d");
       ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
-      // Set photo preview
+      
+      // Show photo preview.
       photoPreviewEl.src = canvas.toDataURL("image/jpeg");
       photoPreviewEl.style.display = "block";
-      // Store blob for uploading
+      
+      // Convert image to Blob for upload.
       canvas.toBlob(function(blob) {
         photoBlob = blob;
       }, "image/jpeg");
+      
       stopCamera();
       retakeBtn.style.display = "block";
     };
 
+    // Stop the camera stream.
     cancelCameraBtn.onclick = function() {
       stopCamera();
     };
@@ -242,6 +259,7 @@
       cameraContainer.style.display = "none";
     }
 
+    // Allow user to retake photo.
     retakeBtn.onclick = function() {
       photoPreviewEl.style.display = "none";
       photoPreviewEl.src = "";
@@ -250,9 +268,10 @@
       openCameraBtn.click();
     };
 
-    // Form submission
-    formEl.onsubmit = async function(e) {
+    // Handle form submission.
+    document.getElementById("dataForm").onsubmit = async function(e) {
       e.preventDefault();
+      
       if (!isSignedIn) {
         setStatus("Please sign in with Google first.");
         return;
@@ -262,6 +281,7 @@
         return;
       }
       setStatus("Uploading photo to Google Drive...");
+      
       try {
         const fileData = await uploadToDrive();
         setStatus("Updating Google Sheet...");
@@ -277,9 +297,13 @@
       }
     };
 
+    // Upload the photo to Google Drive.
     async function uploadToDrive() {
       const fileName = "photo_" + nameEl.value + "_" + Date.now() + ".jpg";
-      const accessToken = gapi.auth2.getAuthInstance().currentUser.get().getAuthResponse().access_token;
+      // Retrieve access token from the signed-in user.
+      const accessToken = gapi.auth2.getAuthInstance()
+                            .currentUser.get()
+                            .getAuthResponse().access_token;
 
       const metadata = {
         name: fileName,
@@ -300,6 +324,7 @@
       return { fileId: result.id, fileName: fileName };
     }
 
+    // Update the Google Sheet with the form data and the file link.
     async function updateSheet(fileData) {
       const values = [[
         nameEl.value,
@@ -320,6 +345,7 @@
       });
     }
 
+    // Begin initialization when the window loads.
     window.onload = initGapi;
   </script>
 </body>
