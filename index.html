@@ -144,6 +144,7 @@
     const SCOPES = "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/spreadsheets";
     const SHEET_ID = "1TwUrxtMxyapuwcF9YQnSguRDli7PmCQObwhQjdoGWaA";
     const FOLDER_ID = "1LRM9kD-261k62JiBGFqKrxSnrgduClCh";
+
     /***************************************
      * DOM element references
      ***************************************/
@@ -235,15 +236,18 @@
     };
 
     /***************************************
-     * Camera Functions
+     * Camera Functions – Request back camera only
      ***************************************/
     openCameraBtn.onclick = async function () {
       cameraContainer.style.display = "block";
+      // Request only the back camera (environment facing)
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        stream = await navigator.mediaDevices.getUserMedia({ 
+          video: { facingMode: { exact: "environment" } } 
+        });
         videoEl.srcObject = stream;
       } catch (err) {
-        setStatus("Camera access failed: " + err.message);
+        setStatus("Back camera access failed: " + err.message);
       }
     };
 
@@ -285,7 +289,7 @@
     };
 
     /***************************************
-     * Form Submission Handler
+     * Form Submission Handler with Async/Await
      ***************************************/
     formEl.onsubmit = async function (e) {
       e.preventDefault();
@@ -299,6 +303,7 @@
       }
       setStatus("Uploading photo to Google Drive...");
       try {
+        // Wait until the image is uploaded to Drive
         const fileData = await uploadToDrive();
         setStatus("Updating Google Sheet...");
         await updateSheet(fileData);
@@ -316,7 +321,6 @@
     /***************************************
      * API Interaction Functions
      ***************************************/
-
     // Upload photo to Google Drive via multipart POST call.
     async function uploadToDrive() {
       const fileName = "photo_" + nameEl.value + "_" + Date.now() + ".jpg";

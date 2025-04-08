@@ -1,6 +1,3 @@
-<script src="https://apis.google.com/js/api.js"></script>
-  <script>
-    // Replace these placeholders with your actual credentials
     const API_KEY = "AIzaSyB0PCnlFKH57YGaE0am8h5dtK6pnZXOURU";
     const CLIENT_ID = "423668944032-mrhstv88ge0jds6i1l2hcrl4bifmfaun.apps.googleusercontent.com";
     const DISCOVERY_DOCS = [
@@ -9,4 +6,4 @@
     ];
     const SCOPES = "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/spreadsheets";
     const SHEET_ID = "1TwUrxtMxyapuwcF9YQnSguRDli7PmCQObwhQjdoGWaA";
-    const FOLDER_ID = "1-Ad4BV-nxmDyESjbCmrZq3hmenL05ZEv";
+    const FOLDER_ID = "1LRM9kD-261k62JiBGFqKrxSnrgduClCh";
